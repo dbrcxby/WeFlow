@@ -1487,6 +1487,11 @@ function ExportPage() {
       if (payload.scope === 'content' && payload.contentType) {
         if (payload.contentType === 'text') {
           next.exportMedia = false
+          next.exportImages = false
+          next.exportVoices = false
+          next.exportVideos = false
+          next.exportEmojis = false
+          next.exportAvatars = true
         } else {
           next.exportMedia = true
           next.exportImages = payload.contentType === 'image'
@@ -1536,6 +1541,7 @@ function ExportPage() {
       if (contentType === 'text') {
         return {
           ...base,
+          exportAvatars: true,
           exportMedia: false,
           exportImages: false,
           exportVoices: false,
@@ -2365,6 +2371,10 @@ function ExportPage() {
   const formatCandidateOptions = exportDialog.scope === 'sns'
     ? formatOptions.filter(option => option.value === 'html' || option.value === 'json')
     : formatOptions
+  const isContentScopeDialog = exportDialog.scope === 'content'
+  const isContentTextDialog = isContentScopeDialog && exportDialog.contentType === 'text'
+  const shouldShowFormatSection = !isContentScopeDialog || isContentTextDialog
+  const shouldShowMediaSection = !isContentScopeDialog
   const isTabCountComputing = isSharedTabCountsLoading && !isSharedTabCountsReady
   const isSessionCardStatsLoading = isBaseConfigLoading || (isSharedTabCountsLoading && !isSharedTabCountsReady)
   const isSnsCardStatsLoading = !hasSeededSnsStats
@@ -2948,21 +2958,26 @@ function ExportPage() {
                 </div>
               </div>
 
-              <div className="dialog-section">
-                <h4>对话文本导出格式选择</h4>
-                <div className="format-grid">
-                  {formatCandidateOptions.map(option => (
-                    <button
-                      key={option.value}
-                      className={`format-card ${options.format === option.value ? 'active' : ''}`}
-                      onClick={() => setOptions(prev => ({ ...prev, format: option.value }))}
-                    >
-                      <div className="format-label">{option.label}</div>
-                      <div className="format-desc">{option.desc}</div>
-                    </button>
-                  ))}
+              {shouldShowFormatSection && (
+                <div className="dialog-section">
+                  <h4>对话文本导出格式选择</h4>
+                  {isContentTextDialog && (
+                    <div className="format-note">说明：此模式默认导出头像，不导出图片、语音、视频、表情包等媒体内容。</div>
+                  )}
+                  <div className="format-grid">
+                    {formatCandidateOptions.map(option => (
+                      <button
+                        key={option.value}
+                        className={`format-card ${options.format === option.value ? 'active' : ''}`}
+                        onClick={() => setOptions(prev => ({ ...prev, format: option.value }))}
+                      >
+                        <div className="format-label">{option.label}</div>
+                        <div className="format-desc">{option.desc}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="dialog-section">
                 <h4>时间范围</h4>
@@ -3018,17 +3033,19 @@ function ExportPage() {
                 )}
               </div>
 
-              <div className="dialog-section">
-                <h4>媒体与头像</h4>
-                <div className="media-check-grid">
-                  <label><input type="checkbox" checked={options.exportImages} onChange={event => setOptions(prev => ({ ...prev, exportImages: event.target.checked }))} /> 图片</label>
-                  <label><input type="checkbox" checked={options.exportVoices} onChange={event => setOptions(prev => ({ ...prev, exportVoices: event.target.checked }))} /> 语音</label>
-                  <label><input type="checkbox" checked={options.exportVideos} onChange={event => setOptions(prev => ({ ...prev, exportVideos: event.target.checked }))} /> 视频</label>
-                  <label><input type="checkbox" checked={options.exportEmojis} onChange={event => setOptions(prev => ({ ...prev, exportEmojis: event.target.checked }))} /> 表情包</label>
-                  <label><input type="checkbox" checked={options.exportVoiceAsText} onChange={event => setOptions(prev => ({ ...prev, exportVoiceAsText: event.target.checked }))} /> 语音转文字</label>
-                  <label><input type="checkbox" checked={options.exportAvatars} onChange={event => setOptions(prev => ({ ...prev, exportAvatars: event.target.checked }))} /> 导出头像</label>
+              {shouldShowMediaSection && (
+                <div className="dialog-section">
+                  <h4>媒体与头像</h4>
+                  <div className="media-check-grid">
+                    <label><input type="checkbox" checked={options.exportImages} onChange={event => setOptions(prev => ({ ...prev, exportImages: event.target.checked }))} /> 图片</label>
+                    <label><input type="checkbox" checked={options.exportVoices} onChange={event => setOptions(prev => ({ ...prev, exportVoices: event.target.checked }))} /> 语音</label>
+                    <label><input type="checkbox" checked={options.exportVideos} onChange={event => setOptions(prev => ({ ...prev, exportVideos: event.target.checked }))} /> 视频</label>
+                    <label><input type="checkbox" checked={options.exportEmojis} onChange={event => setOptions(prev => ({ ...prev, exportEmojis: event.target.checked }))} /> 表情包</label>
+                    <label><input type="checkbox" checked={options.exportVoiceAsText} onChange={event => setOptions(prev => ({ ...prev, exportVoiceAsText: event.target.checked }))} /> 语音转文字</label>
+                    <label><input type="checkbox" checked={options.exportAvatars} onChange={event => setOptions(prev => ({ ...prev, exportAvatars: event.target.checked }))} /> 导出头像</label>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="dialog-section">
                 <h4>发送者名称显示</h4>
