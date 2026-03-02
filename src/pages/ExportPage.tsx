@@ -3,16 +3,22 @@ import { useLocation } from 'react-router-dom'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
   Aperture,
+  Calendar,
+  Check,
   ChevronDown,
   ChevronRight,
   CheckSquare,
+  Copy,
+  Database,
   Download,
   ExternalLink,
   FolderOpen,
+  Hash,
   Image as ImageIcon,
   Loader2,
   AlertTriangle,
   ClipboardList,
+  MessageSquare,
   MessageSquareText,
   Mic,
   RefreshCw,
@@ -169,6 +175,15 @@ const formatAbsoluteDate = (timestamp: number): string => {
   return `${y}-${m}-${day}`
 }
 
+const formatYmdDateFromSeconds = (timestamp?: number): string => {
+  if (!timestamp || !Number.isFinite(timestamp)) return '—'
+  const d = new Date(timestamp * 1000)
+  const y = d.getFullYear()
+  const m = `${d.getMonth() + 1}`.padStart(2, '0')
+  const day = `${d.getDate()}`.padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 const formatRecentExportTime = (timestamp?: number, now = Date.now()): string => {
   if (!timestamp) return ''
   const diff = Math.max(0, now - timestamp)
@@ -268,6 +283,28 @@ interface ContactsLoadIssue {
   errorDetail?: string
   occurredAt: number
   elapsedMs: number
+}
+
+interface SessionDetail {
+  wxid: string
+  displayName: string
+  remark?: string
+  nickName?: string
+  alias?: string
+  avatarUrl?: string
+  messageCount: number
+  voiceMessages?: number
+  imageMessages?: number
+  videoMessages?: number
+  emojiMessages?: number
+  privateMutualGroups?: number
+  groupMemberCount?: number
+  groupMyMessages?: number
+  groupActiveSpeakers?: number
+  groupMutualFriends?: number
+  firstMessageTime?: number
+  latestMessageTime?: number
+  messageTables: { dbName: string; tableName: string; count: number }[]
 }
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
@@ -536,6 +573,11 @@ function ExportPage() {
     total: 0,
     running: false
   })
+  const [showSessionDetailPanel, setShowSessionDetailPanel] = useState(false)
+  const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
+  const [isLoadingSessionDetail, setIsLoadingSessionDetail] = useState(false)
+  const [isLoadingSessionDetailExtra, setIsLoadingSessionDetailExtra] = useState(false)
+  const [copiedDetailField, setCopiedDetailField] = useState<string | null>(null)
 
   const [exportFolder, setExportFolder] = useState('')
   const [writeLayout, setWriteLayout] = useState<configService.ExportWriteLayout>('A')
@@ -598,6 +640,7 @@ function ExportPage() {
   const contactsLoadTimeoutMsRef = useRef(DEFAULT_CONTACTS_LOAD_TIMEOUT_MS)
   const contactsAvatarCacheRef = useRef<Record<string, configService.ContactsAvatarCacheEntry>>({})
   const contactsListRef = useRef<HTMLDivElement>(null)
+  const detailRequestSeqRef = useRef(0)
 
   const ensureExportCacheScope = useCallback(async (): Promise<string> => {
     if (exportCacheScopeReadyRef.current) {
@@ -1913,6 +1956,163 @@ function ExportPage() {
     return map
   }, [sessions])
 
+  const contactByUsername = useMemo(() => {
+    const map = new Map<string, ContactInfo>()
+    for (const contact of contactsList) {
+      map.set(contact.username, contact)
+    }
+    return map
+  }, [contactsList])
+
+  const loadSessionDetail = useCallback(async (sessionId: string) => {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId) return
+
+    const requestSeq = ++detailRequestSeqRef.current
+    const mappedSession = sessionRowByUsername.get(normalizedSessionId)
+    const mappedContact = contactByUsername.get(normalizedSessionId)
+    const hintedCount = typeof mappedSession?.messageCountHint === 'number' && Number.isFinite(mappedSession.messageCountHint) && mappedSession.messageCountHint >= 0
+      ? Math.floor(mappedSession.messageCountHint)
+      : undefined
+
+    setCopiedDetailField(null)
+    setSessionDetail((prev) => {
+      const sameSession = prev?.wxid === normalizedSessionId
+      return {
+        wxid: normalizedSessionId,
+        displayName: mappedSession?.displayName || mappedContact?.displayName || prev?.displayName || normalizedSessionId,
+        remark: sameSession ? prev?.remark : mappedContact?.remark,
+        nickName: sameSession ? prev?.nickName : mappedContact?.nickname,
+        alias: sameSession ? prev?.alias : undefined,
+        avatarUrl: mappedSession?.avatarUrl || mappedContact?.avatarUrl || (sameSession ? prev?.avatarUrl : undefined),
+        messageCount: hintedCount ?? (sameSession ? prev.messageCount : Number.NaN),
+        voiceMessages: sameSession ? prev?.voiceMessages : undefined,
+        imageMessages: sameSession ? prev?.imageMessages : undefined,
+        videoMessages: sameSession ? prev?.videoMessages : undefined,
+        emojiMessages: sameSession ? prev?.emojiMessages : undefined,
+        privateMutualGroups: sameSession ? prev?.privateMutualGroups : undefined,
+        groupMemberCount: sameSession ? prev?.groupMemberCount : undefined,
+        groupMyMessages: sameSession ? prev?.groupMyMessages : undefined,
+        groupActiveSpeakers: sameSession ? prev?.groupActiveSpeakers : undefined,
+        groupMutualFriends: sameSession ? prev?.groupMutualFriends : undefined,
+        firstMessageTime: sameSession ? prev?.firstMessageTime : undefined,
+        latestMessageTime: sameSession ? prev?.latestMessageTime : undefined,
+        messageTables: sameSession && Array.isArray(prev?.messageTables) ? prev.messageTables : []
+      }
+    })
+    setIsLoadingSessionDetail(true)
+    setIsLoadingSessionDetailExtra(true)
+
+    try {
+      const result = await window.electronAPI.chat.getSessionDetailFast(normalizedSessionId)
+      if (requestSeq !== detailRequestSeqRef.current) return
+      if (result.success && result.detail) {
+        setSessionDetail((prev) => ({
+          wxid: normalizedSessionId,
+          displayName: result.detail!.displayName || prev?.displayName || normalizedSessionId,
+          remark: result.detail!.remark ?? prev?.remark,
+          nickName: result.detail!.nickName ?? prev?.nickName,
+          alias: result.detail!.alias ?? prev?.alias,
+          avatarUrl: result.detail!.avatarUrl || prev?.avatarUrl,
+          messageCount: Number.isFinite(result.detail!.messageCount) ? result.detail!.messageCount : prev?.messageCount ?? Number.NaN,
+          voiceMessages: prev?.voiceMessages,
+          imageMessages: prev?.imageMessages,
+          videoMessages: prev?.videoMessages,
+          emojiMessages: prev?.emojiMessages,
+          privateMutualGroups: prev?.privateMutualGroups,
+          groupMemberCount: prev?.groupMemberCount,
+          groupMyMessages: prev?.groupMyMessages,
+          groupActiveSpeakers: prev?.groupActiveSpeakers,
+          groupMutualFriends: prev?.groupMutualFriends,
+          firstMessageTime: prev?.firstMessageTime,
+          latestMessageTime: prev?.latestMessageTime,
+          messageTables: Array.isArray(prev?.messageTables) ? (prev?.messageTables || []) : []
+        }))
+      }
+    } catch (error) {
+      console.error('导出页加载会话详情失败:', error)
+    } finally {
+      if (requestSeq === detailRequestSeqRef.current) {
+        setIsLoadingSessionDetail(false)
+      }
+    }
+
+    try {
+      const [extraResultSettled, statsResultSettled] = await Promise.allSettled([
+        window.electronAPI.chat.getSessionDetailExtra(normalizedSessionId),
+        window.electronAPI.chat.getExportSessionStats([normalizedSessionId])
+      ])
+
+      if (requestSeq !== detailRequestSeqRef.current) return
+
+      setSessionDetail((prev) => {
+        if (!prev || prev.wxid !== normalizedSessionId) return prev
+
+        let next = { ...prev }
+        if (extraResultSettled.status === 'fulfilled' && extraResultSettled.value.success && extraResultSettled.value.detail) {
+          next = {
+            ...next,
+            firstMessageTime: extraResultSettled.value.detail.firstMessageTime,
+            latestMessageTime: extraResultSettled.value.detail.latestMessageTime,
+            messageTables: Array.isArray(extraResultSettled.value.detail.messageTables) ? extraResultSettled.value.detail.messageTables : []
+          }
+        }
+
+        if (statsResultSettled.status === 'fulfilled' && statsResultSettled.value.success && statsResultSettled.value.data) {
+          const metric = statsResultSettled.value.data[normalizedSessionId]
+          if (metric) {
+            next = {
+              ...next,
+              messageCount: Number.isFinite(metric.totalMessages) ? metric.totalMessages : next.messageCount,
+              voiceMessages: metric.voiceMessages,
+              imageMessages: metric.imageMessages,
+              videoMessages: metric.videoMessages,
+              emojiMessages: metric.emojiMessages,
+              privateMutualGroups: metric.privateMutualGroups,
+              groupMemberCount: metric.groupMemberCount,
+              groupMyMessages: metric.groupMyMessages,
+              groupActiveSpeakers: metric.groupActiveSpeakers,
+              groupMutualFriends: metric.groupMutualFriends,
+              firstMessageTime: Number.isFinite(metric.firstTimestamp) ? metric.firstTimestamp : next.firstMessageTime,
+              latestMessageTime: Number.isFinite(metric.lastTimestamp) ? metric.lastTimestamp : next.latestMessageTime
+            }
+          }
+        }
+
+        return next
+      })
+    } catch (error) {
+      console.error('导出页加载会话详情补充统计失败:', error)
+    } finally {
+      if (requestSeq === detailRequestSeqRef.current) {
+        setIsLoadingSessionDetailExtra(false)
+      }
+    }
+  }, [contactByUsername, sessionRowByUsername])
+
+  const openSessionDetail = useCallback((sessionId: string) => {
+    if (!sessionId) return
+    setShowSessionDetailPanel(true)
+    void loadSessionDetail(sessionId)
+  }, [loadSessionDetail])
+
+  const handleCopyDetailField = useCallback(async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedDetailField(field)
+      setTimeout(() => setCopiedDetailField(null), 1500)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopiedDetailField(field)
+      setTimeout(() => setCopiedDetailField(null), 1500)
+    }
+  }, [])
+
   const contactsUpdatedAtLabel = useMemo(() => {
     if (!contactsUpdatedAt) return ''
     return new Date(contactsUpdatedAt).toLocaleString()
@@ -2044,12 +2244,21 @@ function ExportPage() {
   }
 
   const renderActionCell = (session: SessionRow) => {
+    const isDetailActive = showSessionDetailPanel && sessionDetail?.wxid === session.username
     if (!session.hasSession) {
       return (
         <div className="row-action-cell">
-          <button className="row-export-btn no-session" disabled>
-            暂无会话
-          </button>
+          <div className="row-action-main">
+            <button
+              className={`row-detail-btn ${isDetailActive ? 'active' : ''}`}
+              onClick={() => openSessionDetail(session.username)}
+            >
+              详情
+            </button>
+            <button className="row-export-btn no-session" disabled>
+              暂无会话
+            </button>
+          </div>
         </div>
       )
     }
@@ -2060,18 +2269,26 @@ function ExportPage() {
 
     return (
       <div className="row-action-cell">
-        <button
-          className={`row-export-btn ${isRunning ? 'running' : ''}`}
-          disabled={isRunning}
-          onClick={() => openSingleExport(session)}
-        >
-          {isRunning ? (
-            <>
-              <Loader2 size={14} className="spin" />
-              导出中
-            </>
-          ) : isQueued ? '排队中' : '导出'}
-        </button>
+        <div className="row-action-main">
+          <button
+            className={`row-detail-btn ${isDetailActive ? 'active' : ''}`}
+            onClick={() => openSessionDetail(session.username)}
+          >
+            详情
+          </button>
+          <button
+            className={`row-export-btn ${isRunning ? 'running' : ''}`}
+            disabled={isRunning}
+            onClick={() => openSingleExport(session)}
+          >
+            {isRunning ? (
+              <>
+                <Loader2 size={14} className="spin" />
+                导出中
+              </>
+            ) : isQueued ? '排队中' : '导出'}
+          </button>
+        </div>
         {recent && <span className="row-export-time">{recent}</span>}
       </div>
     )
@@ -2364,110 +2581,310 @@ function ExportPage() {
           </div>
         )}
 
-        <div className="table-wrap">
-          {contactsList.length === 0 && contactsLoadIssue ? (
-            <div className="load-issue-state">
-              <div className="issue-card">
-                <div className="issue-title">
-                  <AlertTriangle size={18} />
-                  <span>{contactsLoadIssue.title}</span>
+        <div className={`session-table-layout ${showSessionDetailPanel ? 'with-detail' : ''}`}>
+          <div className="table-wrap">
+            {contactsList.length === 0 && contactsLoadIssue ? (
+              <div className="load-issue-state">
+                <div className="issue-card">
+                  <div className="issue-title">
+                    <AlertTriangle size={18} />
+                    <span>{contactsLoadIssue.title}</span>
+                  </div>
+                  <p className="issue-message">{contactsLoadIssue.message}</p>
+                  <p className="issue-reason">{contactsLoadIssue.reason}</p>
+                  <ul className="issue-hints">
+                    <li>可能原因1：数据库当前仍在执行高开销查询（例如导出页后台统计）。</li>
+                    <li>可能原因2：contact.db 数据量较大，首次查询时间过长。</li>
+                    <li>可能原因3：数据库连接状态异常或 IPC 调用卡住。</li>
+                  </ul>
+                  <div className="issue-actions">
+                    <button className="issue-btn primary" onClick={() => void loadContactsList()}>
+                      <RefreshCw size={14} />
+                      <span>重试加载</span>
+                    </button>
+                    <button className="issue-btn" onClick={() => setShowContactsDiagnostics(prev => !prev)}>
+                      <ClipboardList size={14} />
+                      <span>{showContactsDiagnostics ? '收起诊断详情' : '查看诊断详情'}</span>
+                    </button>
+                    <button className="issue-btn" onClick={copyContactsDiagnostics}>
+                      <span>复制诊断信息</span>
+                    </button>
+                  </div>
+                  {showContactsDiagnostics && (
+                    <pre className="issue-diagnostics">{contactsDiagnosticsText}</pre>
+                  )}
                 </div>
-                <p className="issue-message">{contactsLoadIssue.message}</p>
-                <p className="issue-reason">{contactsLoadIssue.reason}</p>
-                <ul className="issue-hints">
-                  <li>可能原因1：数据库当前仍在执行高开销查询（例如导出页后台统计）。</li>
-                  <li>可能原因2：contact.db 数据量较大，首次查询时间过长。</li>
-                  <li>可能原因3：数据库连接状态异常或 IPC 调用卡住。</li>
-                </ul>
-                <div className="issue-actions">
-                  <button className="issue-btn primary" onClick={() => void loadContactsList()}>
-                    <RefreshCw size={14} />
-                    <span>重试加载</span>
-                  </button>
-                  <button className="issue-btn" onClick={() => setShowContactsDiagnostics(prev => !prev)}>
-                    <ClipboardList size={14} />
-                    <span>{showContactsDiagnostics ? '收起诊断详情' : '查看诊断详情'}</span>
-                  </button>
-                  <button className="issue-btn" onClick={copyContactsDiagnostics}>
-                    <span>复制诊断信息</span>
-                  </button>
-                </div>
-                {showContactsDiagnostics && (
-                  <pre className="issue-diagnostics">{contactsDiagnosticsText}</pre>
-                )}
               </div>
-            </div>
-          ) : isContactsListLoading && contactsList.length === 0 ? (
-            <div className="loading-state">
-              <Loader2 size={32} className="spin" />
-              <span>联系人加载中...</span>
-            </div>
-          ) : filteredContacts.length === 0 ? (
-            <div className="empty-state">
-              <span>暂无联系人</span>
-            </div>
-          ) : (
-            <div className="contacts-list" ref={contactsListRef} onScroll={onContactsListScroll}>
-              <div
-                className="contacts-list-virtual"
-                style={{ height: filteredContacts.length * CONTACTS_LIST_VIRTUAL_ROW_HEIGHT }}
-              >
-                {visibleContacts.map((contact, idx) => {
-                  const absoluteIndex = contactStartIndex + idx
-                  const top = absoluteIndex * CONTACTS_LIST_VIRTUAL_ROW_HEIGHT
-                  const matchedSession = sessionRowByUsername.get(contact.username)
-                  const canExport = Boolean(matchedSession?.hasSession)
-                  const isRunning = canExport && runningSessionIds.has(contact.username)
-                  const isQueued = canExport && queuedSessionIds.has(contact.username)
-                  const recent = canExport ? formatRecentExportTime(lastExportBySession[contact.username], nowTick) : ''
-                  return (
-                    <div
-                      key={contact.username}
-                      className="contact-row"
-                      style={{ transform: `translateY(${top}px)` }}
-                    >
-                      <div className="contact-item">
-                        <div className="contact-avatar">
-                          {contact.avatarUrl ? (
-                            <img src={contact.avatarUrl} alt="" loading="lazy" />
-                          ) : (
-                            <span>{getAvatarLetter(contact.displayName)}</span>
-                          )}
-                        </div>
-                        <div className="contact-info">
-                          <div className="contact-name">{contact.displayName}</div>
-                          <div className="contact-remark">{contact.username}</div>
-                        </div>
-                        <div className={`contact-type ${contact.type}`}>
-                          <span>{getContactTypeName(contact.type)}</span>
-                        </div>
-                        <div className="row-action-cell">
-                          <button
-                            className={`row-export-btn ${isRunning ? 'running' : ''} ${!canExport ? 'no-session' : ''}`}
-                            disabled={!canExport || isRunning}
-                            onClick={() => {
-                              if (!matchedSession || !matchedSession.hasSession) return
-                              openSingleExport({
-                                ...matchedSession,
-                                displayName: contact.displayName || matchedSession.displayName || matchedSession.username
-                              })
-                            }}
-                          >
-                            {isRunning ? (
-                              <>
-                                <Loader2 size={14} className="spin" />
-                                导出中
-                              </>
-                            ) : !canExport ? '暂无会话' : isQueued ? '排队中' : '导出'}
-                          </button>
-                          {recent && <span className="row-export-time">{recent}</span>}
+            ) : isContactsListLoading && contactsList.length === 0 ? (
+              <div className="loading-state">
+                <Loader2 size={32} className="spin" />
+                <span>联系人加载中...</span>
+              </div>
+            ) : filteredContacts.length === 0 ? (
+              <div className="empty-state">
+                <span>暂无联系人</span>
+              </div>
+            ) : (
+              <div className="contacts-list" ref={contactsListRef} onScroll={onContactsListScroll}>
+                <div
+                  className="contacts-list-virtual"
+                  style={{ height: filteredContacts.length * CONTACTS_LIST_VIRTUAL_ROW_HEIGHT }}
+                >
+                  {visibleContacts.map((contact, idx) => {
+                    const absoluteIndex = contactStartIndex + idx
+                    const top = absoluteIndex * CONTACTS_LIST_VIRTUAL_ROW_HEIGHT
+                    const matchedSession = sessionRowByUsername.get(contact.username)
+                    const canExport = Boolean(matchedSession?.hasSession)
+                    const isRunning = canExport && runningSessionIds.has(contact.username)
+                    const isQueued = canExport && queuedSessionIds.has(contact.username)
+                    const recent = canExport ? formatRecentExportTime(lastExportBySession[contact.username], nowTick) : ''
+                    return (
+                      <div
+                        key={contact.username}
+                        className="contact-row"
+                        style={{ transform: `translateY(${top}px)` }}
+                      >
+                        <div className="contact-item">
+                          <div className="contact-avatar">
+                            {contact.avatarUrl ? (
+                              <img src={contact.avatarUrl} alt="" loading="lazy" />
+                            ) : (
+                              <span>{getAvatarLetter(contact.displayName)}</span>
+                            )}
+                          </div>
+                          <div className="contact-info">
+                            <div className="contact-name">{contact.displayName}</div>
+                            <div className="contact-remark">{contact.username}</div>
+                          </div>
+                          <div className={`contact-type ${contact.type}`}>
+                            <span>{getContactTypeName(contact.type)}</span>
+                          </div>
+                          <div className="row-action-cell">
+                            <div className="row-action-main">
+                              <button
+                                className={`row-detail-btn ${showSessionDetailPanel && sessionDetail?.wxid === contact.username ? 'active' : ''}`}
+                                onClick={() => openSessionDetail(contact.username)}
+                              >
+                                详情
+                              </button>
+                              <button
+                                className={`row-export-btn ${isRunning ? 'running' : ''} ${!canExport ? 'no-session' : ''}`}
+                                disabled={!canExport || isRunning}
+                                onClick={() => {
+                                  if (!matchedSession || !matchedSession.hasSession) return
+                                  openSingleExport({
+                                    ...matchedSession,
+                                    displayName: contact.displayName || matchedSession.displayName || matchedSession.username
+                                  })
+                                }}
+                              >
+                                {isRunning ? (
+                                  <>
+                                    <Loader2 size={14} className="spin" />
+                                    导出中
+                                  </>
+                                ) : !canExport ? '暂无会话' : isQueued ? '排队中' : '导出'}
+                              </button>
+                            </div>
+                            {recent && <span className="row-export-time">{recent}</span>}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            )}
+          </div>
+
+          {showSessionDetailPanel && (
+            <aside className="export-session-detail-panel">
+              <div className="detail-header">
+                <h4>会话详情</h4>
+                <button className="close-btn" onClick={() => setShowSessionDetailPanel(false)}>
+                  <X size={16} />
+                </button>
+              </div>
+              {isLoadingSessionDetail && !sessionDetail ? (
+                <div className="detail-loading">
+                  <Loader2 size={20} className="spin" />
+                  <span>加载中...</span>
+                </div>
+              ) : sessionDetail ? (
+                <div className="detail-content">
+                  <div className="detail-section">
+                    <div className="detail-item">
+                      <Hash size={14} />
+                      <span className="label">微信ID</span>
+                      <span className="value">{sessionDetail.wxid}</span>
+                      <button className="copy-btn" title="复制" onClick={() => void handleCopyDetailField(sessionDetail.wxid, 'wxid')}>
+                        {copiedDetailField === 'wxid' ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                    {sessionDetail.remark && (
+                      <div className="detail-item">
+                        <span className="label">备注</span>
+                        <span className="value">{sessionDetail.remark}</span>
+                        <button className="copy-btn" title="复制" onClick={() => void handleCopyDetailField(sessionDetail.remark || '', 'remark')}>
+                          {copiedDetailField === 'remark' ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    )}
+                    {sessionDetail.nickName && (
+                      <div className="detail-item">
+                        <span className="label">昵称</span>
+                        <span className="value">{sessionDetail.nickName}</span>
+                        <button className="copy-btn" title="复制" onClick={() => void handleCopyDetailField(sessionDetail.nickName || '', 'nickName')}>
+                          {copiedDetailField === 'nickName' ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    )}
+                    {sessionDetail.alias && (
+                      <div className="detail-item">
+                        <span className="label">微信号</span>
+                        <span className="value">{sessionDetail.alias}</span>
+                        <button className="copy-btn" title="复制" onClick={() => void handleCopyDetailField(sessionDetail.alias || '', 'alias')}>
+                          {copiedDetailField === 'alias' ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="detail-section">
+                    <div className="section-title">
+                      <MessageSquare size={14} />
+                      <span>消息统计（导出口径）</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">消息总数</span>
+                      <span className="value highlight">
+                        {Number.isFinite(sessionDetail.messageCount)
+                          ? sessionDetail.messageCount.toLocaleString()
+                          : ((isLoadingSessionDetail || isLoadingSessionDetailExtra) ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">语音</span>
+                      <span className="value">
+                        {Number.isFinite(sessionDetail.voiceMessages)
+                          ? (sessionDetail.voiceMessages as number).toLocaleString()
+                          : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">图片</span>
+                      <span className="value">
+                        {Number.isFinite(sessionDetail.imageMessages)
+                          ? (sessionDetail.imageMessages as number).toLocaleString()
+                          : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">视频</span>
+                      <span className="value">
+                        {Number.isFinite(sessionDetail.videoMessages)
+                          ? (sessionDetail.videoMessages as number).toLocaleString()
+                          : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">表情包</span>
+                      <span className="value">
+                        {Number.isFinite(sessionDetail.emojiMessages)
+                          ? (sessionDetail.emojiMessages as number).toLocaleString()
+                          : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                    {sessionDetail.wxid.includes('@chatroom') ? (
+                      <>
+                        <div className="detail-item">
+                          <span className="label">我发的消息数</span>
+                          <span className="value">
+                            {Number.isFinite(sessionDetail.groupMyMessages)
+                              ? (sessionDetail.groupMyMessages as number).toLocaleString()
+                              : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                          </span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="label">群人数</span>
+                          <span className="value">
+                            {Number.isFinite(sessionDetail.groupMemberCount)
+                              ? (sessionDetail.groupMemberCount as number).toLocaleString()
+                              : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                          </span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="label">群发言人数</span>
+                          <span className="value">
+                            {Number.isFinite(sessionDetail.groupActiveSpeakers)
+                              ? (sessionDetail.groupActiveSpeakers as number).toLocaleString()
+                              : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                          </span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="label">群共同好友数</span>
+                          <span className="value">
+                            {Number.isFinite(sessionDetail.groupMutualFriends)
+                              ? (sessionDetail.groupMutualFriends as number).toLocaleString()
+                              : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="detail-item">
+                        <span className="label">共同群聊数</span>
+                        <span className="value">
+                          {Number.isFinite(sessionDetail.privateMutualGroups)
+                            ? (sessionDetail.privateMutualGroups as number).toLocaleString()
+                            : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                        </span>
+                      </div>
+                    )}
+                    <div className="detail-item">
+                      <Calendar size={14} />
+                      <span className="label">首条消息</span>
+                      <span className="value">
+                        {sessionDetail.firstMessageTime
+                          ? formatYmdDateFromSeconds(sessionDetail.firstMessageTime)
+                          : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                    <div className="detail-item">
+                      <Calendar size={14} />
+                      <span className="label">最新消息</span>
+                      <span className="value">
+                        {sessionDetail.latestMessageTime
+                          ? formatYmdDateFromSeconds(sessionDetail.latestMessageTime)
+                          : (isLoadingSessionDetailExtra ? '统计中...' : '—')}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="detail-section">
+                    <div className="section-title">
+                      <Database size={14} />
+                      <span>数据库分布</span>
+                    </div>
+                    {Array.isArray(sessionDetail.messageTables) && sessionDetail.messageTables.length > 0 ? (
+                      <div className="table-list">
+                        {sessionDetail.messageTables.map((table, index) => (
+                          <div key={`${table.dbName}-${table.tableName}-${index}`} className="table-item">
+                            <span className="db-name">{table.dbName}</span>
+                            <span className="table-count">{table.count.toLocaleString()} 条</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="detail-table-placeholder">
+                        {isLoadingSessionDetailExtra ? '统计中...' : '暂无统计数据'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="detail-empty">暂无详情</div>
+              )}
+            </aside>
           )}
         </div>
       </div>
