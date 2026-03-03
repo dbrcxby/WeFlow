@@ -867,6 +867,7 @@ class ExportService {
       case 49: {
         const title = this.extractXmlValue(content, 'title')
         const type = this.extractXmlValue(content, 'type')
+        const songName = this.extractXmlValue(content, 'songname')
 
         // 转账消息特殊处理
         if (type === '2000') {
@@ -879,6 +880,7 @@ class ExportService {
           return transferPrefix
         }
 
+        if (type === '3') return songName ? `[音乐] ${songName}` : (title ? `[音乐] ${title}` : '[音乐]')
         if (type === '6') return title ? `[文件] ${title}` : '[文件]'
         if (type === '19') return title ? `[聊天记录] ${title}` : '[聊天记录]'
         if (type === '33' || type === '36') return title ? `[小程序] ${title}` : '[小程序]'
@@ -920,6 +922,7 @@ class ExportService {
           }
 
           // 其他类型
+          if (xmlType === '3') return title ? `[音乐] ${title}` : '[音乐]'
           if (xmlType === '6') return title ? `[文件] ${title}` : '[文件]'
           if (xmlType === '19') return title ? `[聊天记录] ${title}` : '[聊天记录]'
           if (xmlType === '33' || xmlType === '36') return title ? `[小程序] ${title}` : '[小程序]'
@@ -1303,6 +1306,7 @@ class ExportService {
 
       if (xmlType) {
         switch (xmlType) {
+          case '3': return '音乐消息'
           case '87': return '群公告'
           case '2000': return '转账消息'
           case '5': return '链接消息'
@@ -1513,6 +1517,11 @@ class ExportService {
       normalized.includes('<finder') ||
       normalized.includes('finderusername') ||
       normalized.includes('finderobjectid')
+    const isMusic =
+      xmlType === '3' ||
+      normalized.includes('<musicurl') ||
+      normalized.includes('<playurl>') ||
+      normalized.includes('<dataurl>')
 
     if (!looksLikeAppMsg && !isFinder) return null
 
@@ -1521,7 +1530,7 @@ class ExportService {
       appMsgKind = 'finder'
     } else if (xmlType === '2001') {
       appMsgKind = 'red-packet'
-    } else if (xmlType === '3') {
+    } else if (isMusic) {
       appMsgKind = 'music'
     } else if (xmlType === '33' || xmlType === '36') {
       appMsgKind = 'miniapp'
@@ -1544,6 +1553,46 @@ class ExportService {
     const meta: Record<string, any> = {}
     if (xmlType) meta.appMsgType = xmlType
     if (appMsgKind) meta.appMsgKind = appMsgKind
+
+    if (isMusic) {
+      const musicTitle =
+        this.extractXmlValue(normalized, 'songname') ||
+        this.extractXmlValue(normalized, 'title')
+      const musicUrl =
+        this.extractXmlValue(normalized, 'musicurl') ||
+        this.extractXmlValue(normalized, 'playurl') ||
+        this.extractXmlValue(normalized, 'songalbumurl')
+      const musicDataUrl =
+        this.extractXmlValue(normalized, 'dataurl') ||
+        this.extractXmlValue(normalized, 'lowurl')
+      const musicAlbumUrl = this.extractXmlValue(normalized, 'songalbumurl')
+      const musicCoverUrl =
+        this.extractXmlValue(normalized, 'thumburl') ||
+        this.extractXmlValue(normalized, 'cdnthumburl') ||
+        this.extractXmlValue(normalized, 'coverurl') ||
+        this.extractXmlValue(normalized, 'cover')
+      const musicSinger =
+        this.extractXmlValue(normalized, 'singername') ||
+        this.extractXmlValue(normalized, 'artist') ||
+        this.extractXmlValue(normalized, 'albumartist')
+      const musicAppName = this.extractXmlValue(normalized, 'appname')
+      const musicSourceName = this.extractXmlValue(normalized, 'sourcename')
+      const durationRaw =
+        this.extractXmlValue(normalized, 'playlength') ||
+        this.extractXmlValue(normalized, 'play_length') ||
+        this.extractXmlValue(normalized, 'duration')
+      const musicDuration = durationRaw ? this.parseDurationSeconds(durationRaw) : null
+
+      if (musicTitle) meta.musicTitle = musicTitle
+      if (musicUrl) meta.musicUrl = musicUrl
+      if (musicDataUrl) meta.musicDataUrl = musicDataUrl
+      if (musicAlbumUrl) meta.musicAlbumUrl = musicAlbumUrl
+      if (musicCoverUrl) meta.musicCoverUrl = musicCoverUrl
+      if (musicSinger) meta.musicSinger = musicSinger
+      if (musicAppName) meta.musicAppName = musicAppName
+      if (musicSourceName) meta.musicSourceName = musicSourceName
+      if (musicDuration != null) meta.musicDuration = musicDuration
+    }
 
     if (!isFinder) {
       return Object.keys(meta).length > 0 ? meta : null
@@ -1586,6 +1635,49 @@ class ExportService {
     if (finderDuration != null) meta.finderDuration = finderDuration
     if (finderObjectId) meta.finderObjectId = finderObjectId
     if (finderUrl) meta.finderUrl = finderUrl
+
+    return Object.keys(meta).length > 0 ? meta : null
+  }
+
+  private extractArkmeContactCardMeta(content: string, localType: number): Record<string, any> | null {
+    if (!content || localType !== 42) return null
+
+    const normalized = this.normalizeAppMessageContent(content)
+    const readAttr = (attrName: string): string =>
+      this.extractXmlAttribute(normalized, 'msg', attrName) || this.extractXmlValue(normalized, attrName)
+
+    const contactCardWxid =
+      readAttr('username') ||
+      readAttr('encryptusername') ||
+      readAttr('encrypt_user_name')
+    const contactCardNickname = readAttr('nickname')
+    const contactCardAlias = readAttr('alias')
+    const contactCardRemark = readAttr('remark')
+    const contactCardProvince = readAttr('province')
+    const contactCardCity = readAttr('city')
+    const contactCardSignature = readAttr('sign') || readAttr('signature')
+    const contactCardAvatar =
+      readAttr('smallheadimgurl') ||
+      readAttr('bigheadimgurl') ||
+      readAttr('headimgurl') ||
+      readAttr('avatar')
+    const sexRaw = readAttr('sex')
+    const contactCardGender = sexRaw ? parseInt(sexRaw, 10) : NaN
+
+    const meta: Record<string, any> = {
+      cardKind: 'contact-card'
+    }
+    if (contactCardWxid) meta.contactCardWxid = contactCardWxid
+    if (contactCardNickname) meta.contactCardNickname = contactCardNickname
+    if (contactCardAlias) meta.contactCardAlias = contactCardAlias
+    if (contactCardRemark) meta.contactCardRemark = contactCardRemark
+    if (contactCardProvince) meta.contactCardProvince = contactCardProvince
+    if (contactCardCity) meta.contactCardCity = contactCardCity
+    if (contactCardSignature) meta.contactCardSignature = contactCardSignature
+    if (contactCardAvatar) meta.contactCardAvatar = contactCardAvatar
+    if (Number.isFinite(contactCardGender) && contactCardGender >= 0) {
+      meta.contactCardGender = contactCardGender
+    }
 
     return Object.keys(meta).length > 0 ? meta : null
   }
@@ -2050,6 +2142,46 @@ class ExportService {
     return tagMatch?.[1]?.toLowerCase()
   }
 
+  private extractLocationMeta(content: string, localType: number): {
+    locationLat?: number
+    locationLng?: number
+    locationPoiname?: string
+    locationLabel?: string
+  } | null {
+    if (!content || localType !== 48) return null
+
+    const normalized = this.normalizeAppMessageContent(content)
+    const rawLat = this.extractXmlAttribute(normalized, 'location', 'x') || this.extractXmlAttribute(normalized, 'location', 'latitude')
+    const rawLng = this.extractXmlAttribute(normalized, 'location', 'y') || this.extractXmlAttribute(normalized, 'location', 'longitude')
+    const locationPoiname =
+      this.extractXmlAttribute(normalized, 'location', 'poiname') ||
+      this.extractXmlValue(normalized, 'poiname') ||
+      this.extractXmlValue(normalized, 'poiName')
+    const locationLabel =
+      this.extractXmlAttribute(normalized, 'location', 'label') ||
+      this.extractXmlValue(normalized, 'label')
+
+    const meta: {
+      locationLat?: number
+      locationLng?: number
+      locationPoiname?: string
+      locationLabel?: string
+    } = {}
+
+    if (rawLat) {
+      const parsed = parseFloat(rawLat)
+      if (Number.isFinite(parsed)) meta.locationLat = parsed
+    }
+    if (rawLng) {
+      const parsed = parseFloat(rawLng)
+      if (Number.isFinite(parsed)) meta.locationLng = parsed
+    }
+    if (locationPoiname) meta.locationPoiname = locationPoiname
+    if (locationLabel) meta.locationLabel = locationLabel
+
+    return Object.keys(meta).length > 0 ? meta : null
+  }
+
   /**
    * 从 data URL 获取扩展名
    */
@@ -2256,7 +2388,21 @@ class ExportService {
           let emojiCdnUrl: string | undefined
           let emojiMd5: string | undefined
           let videoMd5: string | undefined
+          let locationLat: number | undefined
+          let locationLng: number | undefined
+          let locationPoiname: string | undefined
+          let locationLabel: string | undefined
           let chatRecordList: any[] | undefined
+
+          if (localType === 48 && content) {
+            const locationMeta = this.extractLocationMeta(content, localType)
+            if (locationMeta) {
+              locationLat = locationMeta.locationLat
+              locationLng = locationMeta.locationLng
+              locationPoiname = locationMeta.locationPoiname
+              locationLabel = locationMeta.locationLabel
+            }
+          }
 
           if (collectMode === 'full' || collectMode === 'media-fast') {
             // 优先复用游标返回的字段，缺失时再回退到 XML 解析。
@@ -2298,6 +2444,10 @@ class ExportService {
             emojiCdnUrl,
             emojiMd5,
             videoMd5,
+            locationLat,
+            locationLng,
+            locationPoiname,
+            locationLabel,
             chatRecordList
           })
 
@@ -3628,6 +3778,10 @@ class ExportService {
           if (appMsgMeta) {
             Object.assign(msgObj, appMsgMeta)
           }
+          const contactCardMeta = this.extractArkmeContactCardMeta(msg.content, msg.localType)
+          if (contactCardMeta) {
+            Object.assign(msgObj, contactCardMeta)
+          }
         }
 
         if (content && this.isTransferExportContent(content) && msg.content) {
@@ -3819,6 +3973,25 @@ class ExportService {
           if (message.finderDuration != null) compactMessage.finderDuration = message.finderDuration
           if (message.finderObjectId) compactMessage.finderObjectId = message.finderObjectId
           if (message.finderUrl) compactMessage.finderUrl = message.finderUrl
+          if (message.musicTitle) compactMessage.musicTitle = message.musicTitle
+          if (message.musicUrl) compactMessage.musicUrl = message.musicUrl
+          if (message.musicDataUrl) compactMessage.musicDataUrl = message.musicDataUrl
+          if (message.musicAlbumUrl) compactMessage.musicAlbumUrl = message.musicAlbumUrl
+          if (message.musicCoverUrl) compactMessage.musicCoverUrl = message.musicCoverUrl
+          if (message.musicSinger) compactMessage.musicSinger = message.musicSinger
+          if (message.musicAppName) compactMessage.musicAppName = message.musicAppName
+          if (message.musicSourceName) compactMessage.musicSourceName = message.musicSourceName
+          if (message.musicDuration != null) compactMessage.musicDuration = message.musicDuration
+          if (message.cardKind) compactMessage.cardKind = message.cardKind
+          if (message.contactCardWxid) compactMessage.contactCardWxid = message.contactCardWxid
+          if (message.contactCardNickname) compactMessage.contactCardNickname = message.contactCardNickname
+          if (message.contactCardAlias) compactMessage.contactCardAlias = message.contactCardAlias
+          if (message.contactCardRemark) compactMessage.contactCardRemark = message.contactCardRemark
+          if (message.contactCardGender != null) compactMessage.contactCardGender = message.contactCardGender
+          if (message.contactCardProvince) compactMessage.contactCardProvince = message.contactCardProvince
+          if (message.contactCardCity) compactMessage.contactCardCity = message.contactCardCity
+          if (message.contactCardSignature) compactMessage.contactCardSignature = message.contactCardSignature
+          if (message.contactCardAvatar) compactMessage.contactCardAvatar = message.contactCardAvatar
           return compactMessage
         })
 
