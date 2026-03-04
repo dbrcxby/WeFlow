@@ -871,6 +871,13 @@ const TaskCenterModal = memo(function TaskCenterModal({
                 const normalizedProgressCurrent = normalizedProgressTotal > 0
                   ? Math.max(0, Math.min(normalizedProgressTotal, task.progress.current))
                   : 0
+                const completedSessionTotal = normalizedProgressTotal > 0
+                  ? normalizedProgressTotal
+                  : task.payload.sessionIds.length
+                const completedSessionCount = Math.min(
+                  completedSessionTotal,
+                  (task.settledSessionIds || []).length
+                )
                 const currentSessionRatio = task.progress.phaseTotal > 0
                   ? Math.max(0, Math.min(1, task.progress.phaseProgress / task.progress.phaseTotal))
                   : null
@@ -891,8 +898,8 @@ const TaskCenterModal = memo(function TaskCenterModal({
                             />
                           </div>
                           <div className="task-progress-text">
-                            {normalizedProgressTotal > 0
-                              ? `${Math.floor(normalizedProgressCurrent)} / ${normalizedProgressTotal}`
+                            {completedSessionTotal > 0
+                              ? `已完成 ${completedSessionCount} / ${completedSessionTotal}`
                               : '处理中'}
                             {task.status === 'running' && currentSessionRatio !== null
                               ? `（当前会话 ${Math.round(currentSessionRatio * 100)}%）`
