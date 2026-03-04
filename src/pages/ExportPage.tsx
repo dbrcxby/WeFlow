@@ -1023,14 +1023,14 @@ function ExportPage() {
   const [copiedDetailField, setCopiedDetailField] = useState<string | null>(null)
 
   const [exportFolder, setExportFolder] = useState('')
-  const [writeLayout, setWriteLayout] = useState<configService.ExportWriteLayout>('A')
+  const [writeLayout, setWriteLayout] = useState<configService.ExportWriteLayout>('B')
   const [snsExportFormat, setSnsExportFormat] = useState<SnsTimelineExportFormat>('html')
   const [snsExportImages, setSnsExportImages] = useState(false)
   const [snsExportLivePhotos, setSnsExportLivePhotos] = useState(false)
   const [snsExportVideos, setSnsExportVideos] = useState(false)
 
   const [options, setOptions] = useState<ExportOptions>({
-    format: 'arkme-json',
+    format: 'json',
     dateRange: {
       start: new Date(new Date().setHours(0, 0, 0, 0)),
       end: new Date()
@@ -1398,15 +1398,13 @@ function ExportPage() {
     setIsBaseConfigLoading(true)
     let isReady = true
     try {
-      const [savedPath, savedFormat, savedMedia, savedVoiceAsText, savedExcelCompactColumns, savedTxtColumns, savedConcurrency, savedWriteLayout, savedSessionMap, savedContentMap, savedSessionRecordMap, savedSnsPostCount, exportCacheScope] = await Promise.all([
+      const [savedPath, savedMedia, savedVoiceAsText, savedExcelCompactColumns, savedTxtColumns, savedConcurrency, savedSessionMap, savedContentMap, savedSessionRecordMap, savedSnsPostCount, exportCacheScope] = await Promise.all([
         configService.getExportPath(),
-        configService.getExportDefaultFormat(),
         configService.getExportDefaultMedia(),
         configService.getExportDefaultVoiceAsText(),
         configService.getExportDefaultExcelCompactColumns(),
         configService.getExportDefaultTxtColumns(),
         configService.getExportDefaultConcurrency(),
-        configService.getExportWriteLayout(),
         configService.getExportLastSessionRunMap(),
         configService.getExportLastContentRunMap(),
         configService.getExportSessionRecordMap(),
@@ -1423,11 +1421,15 @@ function ExportPage() {
         setExportFolder(downloadsPath)
       }
 
-      setWriteLayout(savedWriteLayout)
+      setWriteLayout('B')
       setLastExportBySession(savedSessionMap)
       setLastExportByContent(savedContentMap)
       setExportRecordsBySession(savedSessionRecordMap)
       setLastSnsExportPostCount(savedSnsPostCount)
+      await Promise.all([
+        configService.setExportWriteLayout('B'),
+        configService.setExportDefaultFormat('json')
+      ])
 
       if (cachedSnsStats && Date.now() - cachedSnsStats.updatedAt <= EXPORT_SNS_STATS_CACHE_STALE_MS) {
         setSnsStats({
@@ -1442,7 +1444,7 @@ function ExportPage() {
       const txtColumns = savedTxtColumns && savedTxtColumns.length > 0 ? savedTxtColumns : defaultTxtColumns
       setOptions(prev => ({
         ...prev,
-        format: (savedFormat as TextExportFormat) || prev.format,
+        format: 'json',
         exportMedia: savedMedia ?? prev.exportMedia,
         exportVoiceAsText: savedVoiceAsText ?? prev.exportVoiceAsText,
         excelCompactColumns: savedExcelCompactColumns ?? prev.excelCompactColumns,
