@@ -23,6 +23,7 @@ interface ExportOptions {
   exportVideos: boolean
   exportEmojis: boolean
   exportVoiceAsText: boolean
+  exportQuotedContent: boolean
   excelCompactColumns: boolean
   txtColumns: string[]
   displayNamePreference: 'group-nickname' | 'remark' | 'nickname'
@@ -95,6 +96,7 @@ function ExportPage() {
     exportVideos: true,
     exportEmojis: true,
     exportVoiceAsText: false,
+    exportQuotedContent: true,
     excelCompactColumns: true,
     txtColumns: defaultTxtColumns,
     displayNamePreference: 'remark',
@@ -131,8 +133,9 @@ function ExportPage() {
       }
       const sessionsResult = await window.electronAPI.chat.getSessions()
       if (sessionsResult.success && sessionsResult.sessions) {
-        setSessions(sessionsResult.sessions)
-        setFilteredSessions(sessionsResult.sessions)
+        const validSessions = sessionsResult.sessions.filter((s: { username: string }) => s.username !== 'floatbottle_folder_session')
+        setSessions(validSessions)
+        setFilteredSessions(validSessions)
       }
     } catch (e) {
       console.error('加载会话失败:', e)
@@ -350,6 +353,7 @@ function ExportPage() {
         exportVideos: options.exportMedia && options.exportVideos,
         exportEmojis: options.exportMedia && options.exportEmojis,
         exportVoiceAsText: options.exportVoiceAsText,  // 即使不导出媒体，也可以导出语音转文字内容
+        exportQuotedContent: options.exportQuotedContent,
         excelCompactColumns: options.excelCompactColumns,
         txtColumns: options.txtColumns,
         displayNamePreference: options.displayNamePreference,
@@ -769,6 +773,20 @@ function ExportPage() {
                   type="checkbox"
                   checked={options.exportVoiceAsText}
                   onChange={e => setOptions({ ...options, exportVoiceAsText: e.target.checked })}
+                />
+              </label>
+
+              <div className="media-option-divider"></div>
+
+              <label className="media-checkbox-row">
+                <div className="media-checkbox-info">
+                  <span className="media-checkbox-title">引用内容</span>
+                  <span className="media-checkbox-desc">导出引用消息时包含被引用的内容</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={options.exportQuotedContent}
+                  onChange={e => setOptions({ ...options, exportQuotedContent: e.target.checked })}
                 />
               </label>
 

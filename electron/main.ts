@@ -21,6 +21,7 @@ import { videoService } from './services/videoService'
 import { snsService, isVideoUrl } from './services/snsService'
 import { contactExportService } from './services/contactExportService'
 import { windowsHelloService } from './services/windowsHelloService'
+import { cloudControlService } from './services/cloudControlService'
 
 import { registerNotificationHandlers, showNotification } from './windows/notificationWindow'
 import { httpService } from './services/httpService'
@@ -663,6 +664,19 @@ function registerIpcHandlers() {
     } catch (e) {
       return { success: false, error: String(e) }
     }
+  })
+
+  // 数据收集服务
+  ipcMain.handle('cloud:init', async () => {
+    await cloudControlService.init()
+  })
+
+  ipcMain.handle('cloud:recordPage', (_, pageName: string) => {
+    cloudControlService.recordPage(pageName)
+  })
+
+  ipcMain.handle('cloud:getLogs', async () => {
+    return cloudControlService.getLogs()
   })
 
   ipcMain.handle('app:checkForUpdates', async () => {
