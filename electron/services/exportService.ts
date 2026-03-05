@@ -85,6 +85,7 @@ export interface ExportOptions {
   excelCompactColumns?: boolean
   txtColumns?: string[]
   sessionLayout?: 'shared' | 'per-session'
+  sessionNameWithTypePrefix?: boolean
   displayNamePreference?: 'group-nickname' | 'remark' | 'nickname'
   exportConcurrency?: number
 }
@@ -1652,12 +1653,110 @@ class ExportService {
     return match[1].replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '').trim()
   }
 
+  private extractAppMessageType(content: string): string {
+    if (!content) return ''
+    const appmsgMatch = /<appmsg[\s\S]*?>([\s\S]*?)<\/appmsg>/i.exec(content)
+    if (appmsgMatch) {
+      const appmsgInner = appmsgMatch[1]
+        .replace(/<refermsg[\s\S]*?<\/refermsg>/gi, '')
+        .replace(/<patMsg[\s\S]*?<\/patMsg>/gi, '')
+      const typeMatch = /<type>([\s\S]*?)<\/type>/i.exec(appmsgInner)
+      if (typeMatch) return typeMatch[1].trim()
+    }
+    return this.extractXmlValue(content, 'type')
+  }
+
+  private looksLikeWxid(text: string): boolean {
+    if (!text) return false
+    const trimmed = text.trim().toLowerCase()
+    if (trimmed.startsWith('wxid_')) return true
+    return /^wx[a-z0-9_-]{4,}$/.test(trimmed)
+  }
+
+  private sanitizeQuotedContent(content: string): string {
+    if (!content) return ''
+    let result = content
+    result = result.replace(/wxid_[A-Za-z0-9_-]{3,}/g, '')
+    result = result.replace(/^[\s:：\-]+/, '')
+    result = result.replace(/[:：]{2,}/g, ':')
+    result = result.replace(/^[\s:：\-]+/, '')
+    result = result.replace(/\s+/g, ' ').trim()
+    return result
+  }
+
+  private parseQuoteMessage(content: string): { content?: string; sender?: string; type?: string } {
+    try {
+      const normalized = this.normalizeAppMessageContent(content || '')
+      const referMsgStart = normalized.indexOf('<refermsg>')
+      const referMsgEnd = normalized.indexOf('</refermsg>')
+      if (referMsgStart === -1 || referMsgEnd === -1) {
+        return {}
+      }
+
+      const referMsgXml = normalized.substring(referMsgStart, referMsgEnd + 11)
+      let sender = this.extractXmlValue(referMsgXml, 'displayname')
+      if (sender && this.looksLikeWxid(sender)) {
+        sender = ''
+      }
+
+      const referContent = this.extractXmlValue(referMsgXml, 'content')
+      const referType = this.extractXmlValue(referMsgXml, 'type')
+      let displayContent = referContent
+
+      switch (referType) {
+        case '1':
+          displayContent = this.sanitizeQuotedContent(referContent)
+          break
+        case '3':
+          displayContent = '[图片]'
+          break
+        case '34':
+          displayContent = '[语音]'
+          break
+        case '43':
+          displayContent = '[视频]'
+          break
+        case '47':
+          displayContent = '[动画表情]'
+          break
+        case '49':
+          displayContent = '[链接]'
+          break
+        case '42':
+          displayContent = '[名片]'
+          break
+        case '48':
+          displayContent = '[位置]'
+          break
+        default:
+          if (!referContent || referContent.includes('wxid_')) {
+            displayContent = '[消息]'
+          } else {
+            displayContent = this.sanitizeQuotedContent(referContent)
+          }
+      }
+
+      return {
+        content: displayContent || undefined,
+        sender: sender || undefined,
+        type: referType || undefined
+      }
+    } catch {
+      return {}
+    }
+  }
+
   private extractArkmeAppMessageMeta(content: string, localType: number): Record<string, any> | null {
     if (!content) return null
 
     const normalized = this.normalizeAppMessageContent(content)
-    const looksLikeAppMsg = localType === 49 || normalized.includes('<appmsg') || normalized.includes('<msg>')
-    const xmlType = this.extractXmlValue(normalized, 'type')
+    const looksLikeAppMsg =
+      localType === 49 ||
+      localType === 244813135921 ||
+      normalized.includes('<appmsg') ||
+      normalized.includes('<msg>')
+    const hasReferMsg = normalized.includes('<refermsg>')
+    const xmlType = this.extractAppMessageType(normalized)
     const isFinder =
       xmlType === '51' ||
       normalized.includes('<finder') ||
@@ -1669,7 +1768,7 @@ class ExportService {
       normalized.includes('<playurl>') ||
       normalized.includes('<dataurl>')
 
-    if (!looksLikeAppMsg && !isFinder) return null
+    if (!looksLikeAppMsg && !isFinder && !hasReferMsg) return null
 
     let appMsgKind: string | undefined
     if (isFinder) {
@@ -1688,7 +1787,7 @@ class ExportService {
       appMsgKind = 'transfer'
     } else if (xmlType === '87') {
       appMsgKind = 'announcement'
-    } else if (xmlType === '57') {
+    } else if (xmlType === '57' || hasReferMsg || localType === 244813135921) {
       appMsgKind = 'quote'
     } else if (xmlType === '5' || xmlType === '49') {
       appMsgKind = 'link'
@@ -1698,7 +1797,15 @@ class ExportService {
 
     const meta: Record<string, any> = {}
     if (xmlType) meta.appMsgType = xmlType
+    else if (appMsgKind === 'quote') meta.appMsgType = '57'
     if (appMsgKind) meta.appMsgKind = appMsgKind
+
+    if (appMsgKind === 'quote') {
+      const quoteInfo = this.parseQuoteMessage(normalized)
+      if (quoteInfo.content) meta.quotedContent = quoteInfo.content
+      if (quoteInfo.sender) meta.quotedSender = quoteInfo.sender
+      if (quoteInfo.type) meta.quotedType = quoteInfo.type
+    }
 
     if (isMusic) {
       const musicTitle =
@@ -3797,11 +3904,16 @@ class ExportService {
           senderAvatarKey: msg.senderUsername
         }
 
-        if (options.format === 'arkme-json') {
-          const appMsgMeta = this.extractArkmeAppMessageMeta(msg.content, msg.localType)
-          if (appMsgMeta) {
+        const appMsgMeta = this.extractArkmeAppMessageMeta(msg.content, msg.localType)
+        if (appMsgMeta) {
+          if (options.format === 'arkme-json') {
+            Object.assign(msgObj, appMsgMeta)
+          } else if (options.format === 'json' && appMsgMeta.appMsgKind === 'quote') {
             Object.assign(msgObj, appMsgMeta)
           }
+        }
+
+        if (options.format === 'arkme-json') {
           const contactCardMeta = this.extractArkmeContactCardMeta(msg.content, msg.localType)
           if (contactCardMeta) {
             Object.assign(msgObj, contactCardMeta)
@@ -3988,6 +4100,9 @@ class ExportService {
           if (message.locationLabel) compactMessage.locationLabel = message.locationLabel
           if (message.appMsgType) compactMessage.appMsgType = message.appMsgType
           if (message.appMsgKind) compactMessage.appMsgKind = message.appMsgKind
+          if (message.quotedContent) compactMessage.quotedContent = message.quotedContent
+          if (message.quotedSender) compactMessage.quotedSender = message.quotedSender
+          if (message.quotedType) compactMessage.quotedType = message.quotedType
           if (message.finderTitle) compactMessage.finderTitle = message.finderTitle
           if (message.finderDesc) compactMessage.finderDesc = message.finderDesc
           if (message.finderUsername) compactMessage.finderUsername = message.finderUsername
@@ -6381,9 +6496,12 @@ class ExportService {
           const baseName = sanitizeName(sessionInfo.displayName || sessionId) || sanitizeName(sessionId) || 'session'
           const suffix = sanitizeName(effectiveOptions.fileNameSuffix || '')
           const safeName = suffix ? `${baseName}_${suffix}` : baseName
-          const fileNameWithPrefix = `${await this.getSessionFilePrefix(sessionId)}${safeName}`
+          const sessionNameWithTypePrefix = effectiveOptions.sessionNameWithTypePrefix !== false
+          const sessionTypePrefix = sessionNameWithTypePrefix ? await this.getSessionFilePrefix(sessionId) : ''
+          const fileNameWithPrefix = `${sessionTypePrefix}${safeName}`
           const useSessionFolder = sessionLayout === 'per-session'
-          const sessionDir = useSessionFolder ? path.join(exportBaseDir, safeName) : exportBaseDir
+          const sessionDirName = sessionNameWithTypePrefix ? `${sessionTypePrefix}${safeName}` : safeName
+          const sessionDir = useSessionFolder ? path.join(exportBaseDir, sessionDirName) : exportBaseDir
 
           if (useSessionFolder && !fs.existsSync(sessionDir)) {
             fs.mkdirSync(sessionDir, { recursive: true })

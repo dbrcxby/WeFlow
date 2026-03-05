@@ -750,10 +750,14 @@ const normalizeMessageCount = (value: unknown): number | undefined => {
 
 const WriteLayoutSelector = memo(function WriteLayoutSelector({
   writeLayout,
-  onChange
+  onChange,
+  sessionNameWithTypePrefix,
+  onSessionNameWithTypePrefixChange
 }: {
   writeLayout: configService.ExportWriteLayout
   onChange: (value: configService.ExportWriteLayout) => Promise<void>
+  sessionNameWithTypePrefix: boolean
+  onSessionNameWithTypePrefixChange: (enabled: boolean) => Promise<void>
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -797,6 +801,23 @@ const WriteLayoutSelector = memo(function WriteLayoutSelector({
             <span className="layout-option-desc">{option.desc}</span>
           </button>
         ))}
+        <div className="layout-prefix-toggle">
+          <div className="layout-prefix-copy">
+            <span className="layout-prefix-label">聊天文本文件和会话文件夹带前缀</span>
+            <span className="layout-prefix-desc">开启后使用群聊_、私聊_、公众号_、曾经的好友_前缀</span>
+          </div>
+          <button
+            type="button"
+            className={`layout-prefix-switch ${sessionNameWithTypePrefix ? 'on' : ''}`}
+            onClick={async () => {
+              await onSessionNameWithTypePrefixChange(!sessionNameWithTypePrefix)
+            }}
+            aria-label="聊天文本文件和会话文件夹带前缀"
+            aria-pressed={sessionNameWithTypePrefix}
+          >
+            <span className="layout-prefix-switch-thumb" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1082,6 +1103,7 @@ function ExportPage() {
 
   const [exportFolder, setExportFolder] = useState('')
   const [writeLayout, setWriteLayout] = useState<configService.ExportWriteLayout>('B')
+  const [sessionNameWithTypePrefix, setSessionNameWithTypePrefix] = useState(true)
   const [snsExportFormat, setSnsExportFormat] = useState<SnsTimelineExportFormat>('html')
   const [snsExportImages, setSnsExportImages] = useState(false)
   const [snsExportLivePhotos, setSnsExportLivePhotos] = useState(false)
@@ -1456,7 +1478,7 @@ function ExportPage() {
     setIsBaseConfigLoading(true)
     let isReady = true
     try {
-      const [savedPath, savedMedia, savedVoiceAsText, savedExcelCompactColumns, savedTxtColumns, savedConcurrency, savedSessionMap, savedContentMap, savedSessionRecordMap, savedSnsPostCount, savedWriteLayout, exportCacheScope] = await Promise.all([
+      const [savedPath, savedMedia, savedVoiceAsText, savedExcelCompactColumns, savedTxtColumns, savedConcurrency, savedSessionMap, savedContentMap, savedSessionRecordMap, savedSnsPostCount, savedWriteLayout, savedSessionNameWithTypePrefix, exportCacheScope] = await Promise.all([
         configService.getExportPath(),
         configService.getExportDefaultMedia(),
         configService.getExportDefaultVoiceAsText(),
@@ -1468,6 +1490,7 @@ function ExportPage() {
         configService.getExportSessionRecordMap(),
         configService.getExportLastSnsPostCount(),
         configService.getExportWriteLayout(),
+        configService.getExportSessionNamePrefixEnabled(),
         ensureExportCacheScope()
       ])
 
@@ -1481,6 +1504,7 @@ function ExportPage() {
       }
 
       setWriteLayout(savedWriteLayout)
+      setSessionNameWithTypePrefix(savedSessionNameWithTypePrefix)
       setLastExportBySession(savedSessionMap)
       setLastExportByContent(savedContentMap)
       setExportRecordsBySession(savedSessionRecordMap)
@@ -2266,6 +2290,7 @@ function ExportPage() {
       displayNamePreference: options.displayNamePreference,
       exportConcurrency: options.exportConcurrency,
       sessionLayout,
+      sessionNameWithTypePrefix,
       dateRange: options.useAllTime
         ? null
         : options.dateRange
@@ -3707,6 +3732,11 @@ function ExportPage() {
             onChange={async (value) => {
               setWriteLayout(value)
               await configService.setExportWriteLayout(value)
+            }}
+            sessionNameWithTypePrefix={sessionNameWithTypePrefix}
+            onSessionNameWithTypePrefixChange={async (enabled) => {
+              setSessionNameWithTypePrefix(enabled)
+              await configService.setExportSessionNamePrefixEnabled(enabled)
             }}
           />
 

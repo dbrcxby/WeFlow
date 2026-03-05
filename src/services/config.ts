@@ -33,6 +33,7 @@ export const CONFIG_KEYS = {
   EXPORT_DEFAULT_TXT_COLUMNS: 'exportDefaultTxtColumns',
   EXPORT_DEFAULT_CONCURRENCY: 'exportDefaultConcurrency',
   EXPORT_WRITE_LAYOUT: 'exportWriteLayout',
+  EXPORT_SESSION_NAME_PREFIX_ENABLED: 'exportSessionNamePrefixEnabled',
   EXPORT_LAST_SESSION_RUN_MAP: 'exportLastSessionRunMap',
   EXPORT_LAST_CONTENT_RUN_MAP: 'exportLastContentRunMap',
   EXPORT_SESSION_RECORD_MAP: 'exportSessionRecordMap',
@@ -408,6 +409,16 @@ export async function getExportWriteLayout(): Promise<ExportWriteLayout> {
 
 export async function setExportWriteLayout(layout: ExportWriteLayout): Promise<void> {
   await config.set(CONFIG_KEYS.EXPORT_WRITE_LAYOUT, layout)
+}
+
+export async function getExportSessionNamePrefixEnabled(): Promise<boolean> {
+  const value = await config.get(CONFIG_KEYS.EXPORT_SESSION_NAME_PREFIX_ENABLED)
+  if (typeof value === 'boolean') return value
+  return true
+}
+
+export async function setExportSessionNamePrefixEnabled(enabled: boolean): Promise<void> {
+  await config.set(CONFIG_KEYS.EXPORT_SESSION_NAME_PREFIX_ENABLED, enabled)
 }
 
 export async function getExportLastSessionRunMap(): Promise<Record<string, number>> {
