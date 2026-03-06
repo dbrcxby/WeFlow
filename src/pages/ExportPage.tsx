@@ -5294,7 +5294,7 @@ function ExportPage() {
               </button>
             </div>
             <div className="export-defaults-modal-body">
-              <ExportDefaultsSettingsForm onDefaultsChanged={handleExportDefaultsChanged} />
+              <ExportDefaultsSettingsForm layout="split" onDefaultsChanged={handleExportDefaultsChanged} />
             </div>
             <div className="export-defaults-modal-actions">
               <button

@@ -23,6 +23,7 @@ export interface ExportDefaultsSettingsPatch {
 interface ExportDefaultsSettingsFormProps {
   onNotify?: (text: string, success: boolean) => void
   onDefaultsChanged?: (patch: ExportDefaultsSettingsPatch) => void
+  layout?: 'stacked' | 'split'
 }
 
 const exportFormatOptions = [
@@ -50,7 +51,8 @@ const getOptionLabel = (options: ReadonlyArray<{ value: string; label: string }>
 
 export function ExportDefaultsSettingsForm({
   onNotify,
-  onDefaultsChanged
+  onDefaultsChanged,
+  layout = 'stacked'
 }: ExportDefaultsSettingsFormProps) {
   const [showExportFormatSelect, setShowExportFormatSelect] = useState(false)
   const [showExportExcelColumnsSelect, setShowExportExcelColumnsSelect] = useState(false)
@@ -123,65 +125,73 @@ export function ExportDefaultsSettingsForm({
   }
 
   return (
-    <div className="export-defaults-settings-form">
+    <div className={`export-defaults-settings-form ${layout === 'split' ? 'layout-split' : 'layout-stacked'}`}>
       <div className="form-group">
-        <label>默认导出格式</label>
-        <span className="form-hint">导出页面默认选中的格式</span>
-        <div className="select-field" ref={exportFormatDropdownRef}>
-          <button
-            type="button"
-            className={`select-trigger ${showExportFormatSelect ? 'open' : ''}`}
-            onClick={() => {
-              setShowExportFormatSelect(!showExportFormatSelect)
-              setIsExportDateRangeDialogOpen(false)
-              setShowExportExcelColumnsSelect(false)
-              setShowExportConcurrencySelect(false)
-            }}
-          >
-            <span className="select-value">{exportFormatLabel}</span>
-            <ChevronDown size={16} />
-          </button>
-          {showExportFormatSelect && (
-            <div className="select-dropdown">
-              {exportFormatOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`select-option ${exportDefaultFormat === option.value ? 'active' : ''}`}
-                  onClick={async () => {
-                    setExportDefaultFormat(option.value)
-                    await configService.setExportDefaultFormat(option.value)
-                    onDefaultsChanged?.({ format: option.value })
-                    notify('已更新导出格式默认值', true)
-                    setShowExportFormatSelect(false)
-                  }}
-                >
-                  <span className="option-label">{option.label}</span>
-                  <span className="option-desc">{option.desc}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="form-copy">
+          <label>默认导出格式</label>
+          <span className="form-hint">导出页面默认选中的格式</span>
+        </div>
+        <div className="form-control">
+          <div className="select-field" ref={exportFormatDropdownRef}>
+            <button
+              type="button"
+              className={`select-trigger ${showExportFormatSelect ? 'open' : ''}`}
+              onClick={() => {
+                setShowExportFormatSelect(!showExportFormatSelect)
+                setIsExportDateRangeDialogOpen(false)
+                setShowExportExcelColumnsSelect(false)
+                setShowExportConcurrencySelect(false)
+              }}
+            >
+              <span className="select-value">{exportFormatLabel}</span>
+              <ChevronDown size={16} />
+            </button>
+            {showExportFormatSelect && (
+              <div className="select-dropdown">
+                {exportFormatOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`select-option ${exportDefaultFormat === option.value ? 'active' : ''}`}
+                    onClick={async () => {
+                      setExportDefaultFormat(option.value)
+                      await configService.setExportDefaultFormat(option.value)
+                      onDefaultsChanged?.({ format: option.value })
+                      notify('已更新导出格式默认值', true)
+                      setShowExportFormatSelect(false)
+                    }}
+                  >
+                    <span className="option-label">{option.label}</span>
+                    <span className="option-desc">{option.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="form-group">
-        <label>默认导出时间范围</label>
-        <span className="form-hint">控制导出页面的默认时间选择</span>
-        <div className="settings-time-range-field">
-          <button
-            type="button"
-            className={`settings-time-range-trigger ${isExportDateRangeDialogOpen ? 'open' : ''}`}
-            onClick={() => {
-              setShowExportFormatSelect(false)
-              setShowExportExcelColumnsSelect(false)
-              setShowExportConcurrencySelect(false)
-              setIsExportDateRangeDialogOpen(true)
-            }}
-          >
-            <span className="settings-time-range-value">{exportDateRangeLabel}</span>
-            <span className="settings-time-range-arrow">&gt;</span>
-          </button>
+        <div className="form-copy">
+          <label>默认导出时间范围</label>
+          <span className="form-hint">控制导出页面的默认时间选择</span>
+        </div>
+        <div className="form-control">
+          <div className="settings-time-range-field">
+            <button
+              type="button"
+              className={`settings-time-range-trigger ${isExportDateRangeDialogOpen ? 'open' : ''}`}
+              onClick={() => {
+                setShowExportFormatSelect(false)
+                setShowExportExcelColumnsSelect(false)
+                setShowExportConcurrencySelect(false)
+                setIsExportDateRangeDialogOpen(true)
+              }}
+            >
+              <span className="settings-time-range-value">{exportDateRangeLabel}</span>
+              <span className="settings-time-range-arrow">&gt;</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -199,132 +209,148 @@ export function ExportDefaultsSettingsForm({
       />
 
       <div className="form-group">
-        <label>默认导出媒体文件</label>
-        <span className="form-hint">控制图片/语音/表情的默认导出开关</span>
-        <div className="log-toggle-line">
-          <span className="log-status">{exportDefaultMedia ? '已开启' : '已关闭'}</span>
-          <label className="switch" htmlFor="shared-export-default-media">
-            <input
-              id="shared-export-default-media"
-              className="switch-input"
-              type="checkbox"
-              checked={exportDefaultMedia}
-              onChange={async (e) => {
-                const enabled = e.target.checked
-                setExportDefaultMedia(enabled)
-                await configService.setExportDefaultMedia(enabled)
-                onDefaultsChanged?.({ media: enabled })
-                notify(enabled ? '已开启默认媒体导出' : '已关闭默认媒体导出', true)
+        <div className="form-copy">
+          <label>默认导出媒体文件</label>
+          <span className="form-hint">控制图片/语音/表情的默认导出开关</span>
+        </div>
+        <div className="form-control">
+          <div className="log-toggle-line">
+            <span className="log-status">{exportDefaultMedia ? '已开启' : '已关闭'}</span>
+            <label className="switch" htmlFor="shared-export-default-media">
+              <input
+                id="shared-export-default-media"
+                className="switch-input"
+                type="checkbox"
+                checked={exportDefaultMedia}
+                onChange={async (e) => {
+                  const enabled = e.target.checked
+                  setExportDefaultMedia(enabled)
+                  await configService.setExportDefaultMedia(enabled)
+                  onDefaultsChanged?.({ media: enabled })
+                  notify(enabled ? '已开启默认媒体导出' : '已关闭默认媒体导出', true)
+                }}
+              />
+              <span className="switch-slider" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="form-group">
+        <div className="form-copy">
+          <label>默认语音转文字</label>
+          <span className="form-hint">导出时默认将语音转写为文字</span>
+        </div>
+        <div className="form-control">
+          <div className="log-toggle-line">
+            <span className="log-status">{exportDefaultVoiceAsText ? '已开启' : '已关闭'}</span>
+            <label className="switch" htmlFor="shared-export-default-voice-as-text">
+              <input
+                id="shared-export-default-voice-as-text"
+                className="switch-input"
+                type="checkbox"
+                checked={exportDefaultVoiceAsText}
+                onChange={async (e) => {
+                  const enabled = e.target.checked
+                  setExportDefaultVoiceAsText(enabled)
+                  await configService.setExportDefaultVoiceAsText(enabled)
+                  onDefaultsChanged?.({ voiceAsText: enabled })
+                  notify(enabled ? '已开启默认语音转文字' : '已关闭默认语音转文字', true)
+                }}
+              />
+              <span className="switch-slider" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="form-group">
+        <div className="form-copy">
+          <label>Excel 列显示</label>
+          <span className="form-hint">控制 Excel 导出的列字段</span>
+        </div>
+        <div className="form-control">
+          <div className="select-field" ref={exportExcelColumnsDropdownRef}>
+            <button
+              type="button"
+              className={`select-trigger ${showExportExcelColumnsSelect ? 'open' : ''}`}
+              onClick={() => {
+                setShowExportExcelColumnsSelect(!showExportExcelColumnsSelect)
+                setShowExportFormatSelect(false)
+                setIsExportDateRangeDialogOpen(false)
+                setShowExportConcurrencySelect(false)
               }}
-            />
-            <span className="switch-slider" />
-          </label>
+            >
+              <span className="select-value">{exportExcelColumnsLabel}</span>
+              <ChevronDown size={16} />
+            </button>
+            {showExportExcelColumnsSelect && (
+              <div className="select-dropdown">
+                {exportExcelColumnOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`select-option ${exportExcelColumnsValue === option.value ? 'active' : ''}`}
+                    onClick={async () => {
+                      const compact = option.value === 'compact'
+                      setExportDefaultExcelCompactColumns(compact)
+                      await configService.setExportDefaultExcelCompactColumns(compact)
+                      onDefaultsChanged?.({ excelCompactColumns: compact })
+                      notify(compact ? '已启用精简列' : '已启用完整列', true)
+                      setShowExportExcelColumnsSelect(false)
+                    }}
+                  >
+                    <span className="option-label">{option.label}</span>
+                    <span className="option-desc">{option.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="form-group">
-        <label>默认语音转文字</label>
-        <span className="form-hint">导出时默认将语音转写为文字</span>
-        <div className="log-toggle-line">
-          <span className="log-status">{exportDefaultVoiceAsText ? '已开启' : '已关闭'}</span>
-          <label className="switch" htmlFor="shared-export-default-voice-as-text">
-            <input
-              id="shared-export-default-voice-as-text"
-              className="switch-input"
-              type="checkbox"
-              checked={exportDefaultVoiceAsText}
-              onChange={async (e) => {
-                const enabled = e.target.checked
-                setExportDefaultVoiceAsText(enabled)
-                await configService.setExportDefaultVoiceAsText(enabled)
-                onDefaultsChanged?.({ voiceAsText: enabled })
-                notify(enabled ? '已开启默认语音转文字' : '已关闭默认语音转文字', true)
+        <div className="form-copy">
+          <label>导出并发数</label>
+          <span className="form-hint">导出多个会话时的最大并发（1~6）</span>
+        </div>
+        <div className="form-control">
+          <div className="select-field" ref={exportConcurrencyDropdownRef}>
+            <button
+              type="button"
+              className={`select-trigger ${showExportConcurrencySelect ? 'open' : ''}`}
+              onClick={() => {
+                setShowExportConcurrencySelect(!showExportConcurrencySelect)
+                setShowExportFormatSelect(false)
+                setIsExportDateRangeDialogOpen(false)
+                setShowExportExcelColumnsSelect(false)
               }}
-            />
-            <span className="switch-slider" />
-          </label>
-        </div>
-      </div>
-
-      <div className="form-group">
-        <label>Excel 列显示</label>
-        <span className="form-hint">控制 Excel 导出的列字段</span>
-        <div className="select-field" ref={exportExcelColumnsDropdownRef}>
-          <button
-            type="button"
-            className={`select-trigger ${showExportExcelColumnsSelect ? 'open' : ''}`}
-            onClick={() => {
-              setShowExportExcelColumnsSelect(!showExportExcelColumnsSelect)
-              setShowExportFormatSelect(false)
-              setIsExportDateRangeDialogOpen(false)
-              setShowExportConcurrencySelect(false)
-            }}
-          >
-            <span className="select-value">{exportExcelColumnsLabel}</span>
-            <ChevronDown size={16} />
-          </button>
-          {showExportExcelColumnsSelect && (
-            <div className="select-dropdown">
-              {exportExcelColumnOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`select-option ${exportExcelColumnsValue === option.value ? 'active' : ''}`}
-                  onClick={async () => {
-                    const compact = option.value === 'compact'
-                    setExportDefaultExcelCompactColumns(compact)
-                    await configService.setExportDefaultExcelCompactColumns(compact)
-                    onDefaultsChanged?.({ excelCompactColumns: compact })
-                    notify(compact ? '已启用精简列' : '已启用完整列', true)
-                    setShowExportExcelColumnsSelect(false)
-                  }}
-                >
-                  <span className="option-label">{option.label}</span>
-                  <span className="option-desc">{option.desc}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="form-group">
-        <label>导出并发数</label>
-        <span className="form-hint">导出多个会话时的最大并发（1~6）</span>
-        <div className="select-field" ref={exportConcurrencyDropdownRef}>
-          <button
-            type="button"
-            className={`select-trigger ${showExportConcurrencySelect ? 'open' : ''}`}
-            onClick={() => {
-              setShowExportConcurrencySelect(!showExportConcurrencySelect)
-              setShowExportFormatSelect(false)
-              setIsExportDateRangeDialogOpen(false)
-              setShowExportExcelColumnsSelect(false)
-            }}
-          >
-            <span className="select-value">{exportConcurrencyLabel}</span>
-            <ChevronDown size={16} />
-          </button>
-          {showExportConcurrencySelect && (
-            <div className="select-dropdown">
-              {exportConcurrencyOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={`select-option ${exportDefaultConcurrency === option ? 'active' : ''}`}
-                  onClick={async () => {
-                    setExportDefaultConcurrency(option)
-                    await configService.setExportDefaultConcurrency(option)
-                    onDefaultsChanged?.({ concurrency: option })
-                    notify(`已将导出并发数设为 ${option}`, true)
-                    setShowExportConcurrencySelect(false)
-                  }}
-                >
-                  <span className="option-label">{option}</span>
-                </button>
-              ))}
-            </div>
-          )}
+            >
+              <span className="select-value">{exportConcurrencyLabel}</span>
+              <ChevronDown size={16} />
+            </button>
+            {showExportConcurrencySelect && (
+              <div className="select-dropdown">
+                {exportConcurrencyOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`select-option ${exportDefaultConcurrency === option ? 'active' : ''}`}
+                    onClick={async () => {
+                      setExportDefaultConcurrency(option)
+                      await configService.setExportDefaultConcurrency(option)
+                      onDefaultsChanged?.({ concurrency: option })
+                      notify(`已将导出并发数设为 ${option}`, true)
+                      setShowExportConcurrencySelect(false)
+                    }}
+                  >
+                    <span className="option-label">{option}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
